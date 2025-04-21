@@ -10,31 +10,26 @@
 
 erg::erg()
 {
-	DEBUG("In constructor\n");
-
 	fd = -1;
 }
 
 erg::~erg()
 {
-	DEBUG("In destructor\n");
-
 	if (fd != -1)
 		close(fd);
 }
 
 bool erg::init(string dev)
 {
-	DEBUG("dev=%s\n", dev.c_str());
+	//DEBUG("dev=%s", dev.c_str());
 
 	if (-1 == (fd = open(dev.c_str(), O_RDWR)))
 	{
-		ERROR("Failed to open %s: %s\n", dev.c_str(),
-				strerror(errno));
+		ERROR("Failed to open %s: %s", dev.c_str(), strerror(errno));
 		return false;
 	}
 
-	DEBUG("fd=%d\n", fd);
+	//DEBUG("fd=%d", fd);
 
 	return true;
 }
@@ -48,7 +43,9 @@ bool erg::getSerial(unsigned char *txbuff, unsigned char *rxbuff, int ntx,
 	ssize_t nExp = nrx;
 	unsigned char *pBuff = rxbuff;
 
-	INFO("Sent %lu bytes, want %lu bytes\n", nTxd, nExp);
+	DEBUG("Sent %lu bytes, want %lu bytes", nTxd, nExp);
+
+	//usleep(10000); // Sanity check for read speed
 
 	int retval = -1;
 	fd_set rfds;
@@ -76,130 +73,283 @@ bool erg::getSerial(unsigned char *txbuff, unsigned char *rxbuff, int ntx,
 			nRxd = read(fd, pBuff, nExp); // FD_ISSET(fd, &rfds) will be true
 			nExp -= nRxd;
 			pBuff += nRxd;
-			INFO("Got %lu bytes\n", nRxd);
+			INFO("Got %lu bytes", nRxd);
 		}
 		else
 		{
-			ERROR("Timeout waiting for data\n");
+			ERROR("Timeout waiting for data");
 			break;
 		}
 	}
 
 	printf("Received: ");
 	for (int i = 0; i < nrx; i++)
-	{
 		printf("0x%02x ", rxbuff[i]);
-		fflush(stdout);
-	}
 	printf("\n");
+	fflush(stdout);
 
 	return retval == -1 ? false : true;
 }
 
-// Expects to read 5 bytes
 // 0xb0, status (uchar), distance in meters (float).
-bool erg::getDistanceData(int ergnum, unsigned char& status, float& distance)
+// Expects to read 5 bytes
+// 0xc0 0x00 0x00 0x00 0x00 status=c0, distance=0.000000
+// 0xc2 0x67 0x8f 0x0d 0x41 status=c2, distance=8.847510
+// 0x2d 0x2a 0x27 0x9d 0x41 status=2d, distance=19.644123
+bool erg::getDistanceData(unsigned char ergnum, unsigned char &status,
+		float &distance)
 {
-#warning "For testing: num sent = num received = 5 with loopback"
-	int ntx = 5;
-	int nrx = 5;
+	unsigned char sendBuff[NTX_COMMAND] =
+		{ ergnum, GET_DISTANCE_DATA };
+	unsigned char recvBuff[NRX_DISTANCE_DATA];
 
-	unsigned char sendBuff[ntx] =
-		{ 0x31, 0x32, 0x33, 0x34, 0x35 };
-	unsigned char recvBuff[nrx];
-
-	if (getSerial(sendBuff, recvBuff, ntx, nrx))
+	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_DISTANCE_DATA))
 	{
 		status = recvBuff[0];
 		distance = ieee_float(recvBuff[1]);
 		return true;
 	}
-
-	return false;
+	else
+	{
+		ERROR("Failed to get serial data");
+		return false;
+	}
 }
 
-// Expects to read 5 bytes
 // 0xb1, stroke rate (uchar) in strokes/min and secs/meter (float)
-bool erg::getPaceData(FILE *fp, unsigned char ergnum, string &status,
-		string &distance)
-{
-
-	return false;
-}
-
-// Expects to read 2 bytes
-// 0xb2, heart period (ushort. Heart rate = 576,000/heart period.
-bool erg::getHeartPeriod(FILE *fp, unsigned char ergnum, string &status,
-		string &distance)
-{
-
-	return false;
-}
-
 // Expects to read 5 bytes
-// 0xb3, status (uchar), elapsed time (float) in secs.
-bool erg::getElapsedTime(FILE *fp, unsigned char ergnum, string &status,
-		string &distance)
+// 6c 5c 58 fe 00 3f
+// 0x02 0xaa 0xf2 0x09 0x3f status=2, pace=0.538859
+bool erg::getPaceData(unsigned char ergnum, unsigned char &status, float &pace)
 {
+	unsigned char sendBuff[NTX_COMMAND] =
+		{ ergnum, GET_PACE_DATA };
+	unsigned char recvBuff[NRX_PACE_DATA];
 
-	return false;
+	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_PACE_DATA))
+	{
+		status = recvBuff[0];
+		pace = ieee_float(recvBuff[1]);
+		return true;
+	}
+	else
+	{
+		ERROR("Failed to get serial data");
+		return false;
+	}
+}
+
+// 0xb2, heart period (ushort). Note: heart rate = 576,000/heart period
+// Expects to read 2 bytes
+// 00 00
+bool erg::getHeartPeriod(unsigned char ergnum, float &period)
+{
+	unsigned char sendBuff[NTX_COMMAND] =
+		{ ergnum, GET_HEART_PERIOD };
+	unsigned char recvBuff[NRX_HEART_PERIOD];
+
+	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_HEART_PERIOD))
+	{
+		period = -1; //(float((short *)recvBuff); // FIXME
+		return true;
+	}
+	else
+	{
+		ERROR("Failed to get serial data");
+		return false;
+	}
+}
+
+// 0xb3, status (uchar), elapsed time (float) in secs.
+// Expects to read 5 bytes
+// 83 d0 00 e8 00 41
+// 0xc0 0x8a 0x94 0x40 0x41 status=c0, time=12.036264
+bool erg::getElapsedTime(unsigned char ergnum, unsigned char &status,
+		float &time)
+{
+	unsigned char sendBuff[NTX_COMMAND] =
+		{ ergnum, GET_ELAPSED_TIME };
+	unsigned char recvBuff[NRX_ELAPSED_TIME];
+
+	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_ELAPSED_TIME))
+	{
+		status = recvBuff[0];
+		time = ieee_float(recvBuff[1]);
+		return true;
+	}
+	else
+	{
+		ERROR("Failed to get serial data");
+		return false;
+	}
 }
 
 // 0xb4
-bool erg::getUnknown1(FILE *fp, unsigned char ergnum, string &status,
-		string &distance)
+// Expects to read 4 bytes
+// ae 3b 00 8d
+bool erg::getUnknownB4(unsigned char ergnum)
 {
+	unsigned char sendBuff[NTX_COMMAND] =
+		{ ergnum, GET_UNKNOWN_B4 };
+	unsigned char recvBuff[NRX_UNKNOWN_B4];
 
-	return false;
+	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B4))
+	{
+		for (int i = 0; i < NRX_UNKNOWN_B4; ++i)
+			cout << byteToBinStr(recvBuff[i]) << " ";
+		flush(cout);
+		return true;
+	}
+	else
+	{
+		ERROR("Failed to get serial data");
+		return false;
+	}
 }
 
 // 0xb5
-bool erg::getUnknown2(FILE *fp, unsigned char ergnum, string &status,
-		string &distance)
+// Expects to read 4 bytes
+// 00 63 04 02
+bool erg::getUnknownB5(unsigned char ergnum)
 {
+	unsigned char sendBuff[NTX_COMMAND] =
+		{ ergnum, GET_UNKNOWN_B5 };
+	unsigned char recvBuff[NRX_UNKNOWN_B5];
 
-	return false;
+	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B5))
+	{
+		for (int i = 0; i < NRX_UNKNOWN_B5; ++i)
+			cout << byteToBinStr(recvBuff[i]) << " ";
+		flush(cout);
+		return true;
+	}
+	else
+	{
+		ERROR("Failed to get serial data");
+		return false;
+	}
 }
 
 // 0xb6
-bool erg::getUnknown3(FILE *fp, unsigned char ergnum, string &status,
-		string &distance)
+// Expects to read 6 bytes
+// 00 00 00 00 00 00
+bool erg::getUnknownB6(unsigned char ergnum)
 {
+	unsigned char sendBuff[NTX_COMMAND] =
+		{ ergnum, GET_UNKNOWN_B6 };
+	unsigned char recvBuff[NRX_UNKNOWN_B6];
 
-	return false;
+	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B6))
+	{
+		for (int i = 0; i < NRX_UNKNOWN_B6; ++i)
+			cout << byteToBinStr(recvBuff[i]) << " ";
+		flush(cout);
+		return true;
+	}
+	else
+	{
+		ERROR("Failed to get serial data");
+		return false;
+	}
 }
 
 // 0xb7
-bool erg::getUnknown4(FILE *fp, unsigned char ergnum, string &status,
-		string &distance)
+// Expects to read 4 bytes
+// ff ff ff ff
+bool erg::getUnknownB7(unsigned char ergnum)
 {
+	unsigned char sendBuff[NTX_COMMAND] =
+		{ ergnum, GET_UNKNOWN_B7 };
+	unsigned char recvBuff[NRX_UNKNOWN_B7];
 
-	return false;
+	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B7))
+	{
+		for (int i = 0; i < NRX_UNKNOWN_B7; ++i)
+			cout << byteToBinStr(recvBuff[i]) << " ";
+		flush(cout);
+		return true;
+	}
+	else
+	{
+		ERROR("Failed to get serial data");
+		return false;
+	}
 }
 
+// 0xb8
+// Expects to read 4 bytes
+// ff ff ff ff
+bool erg::getUnknownB8(unsigned char ergnum)
+{
+	unsigned char sendBuff[NTX_COMMAND] =
+		{ ergnum, GET_UNKNOWN_B8 };
+	unsigned char recvBuff[NRX_UNKNOWN_B8];
+
+	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B8))
+	{
+		for (int i = 0; i < NRX_UNKNOWN_B8; ++i)
+			cout << byteToBinStr(recvBuff[i]) << " ";
+		flush(cout);
+		return true;
+	}
+	else
+	{
+		ERROR("Failed to get serial data");
+		return false;
+	}
+}
+
+// 0xb9
+// Expects to read 4 bytes
+// ff ff ff ff
+bool erg::getUnknownB9(unsigned char ergnum)
+{
+	unsigned char sendBuff[NTX_COMMAND] =
+		{ ergnum, GET_UNKNOWN_B9 };
+	unsigned char recvBuff[NRX_UNKNOWN_B9];
+
+	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B9))
+	{
+		for (int i = 0; i < NRX_UNKNOWN_B9; ++i)
+			cout << byteToBinStr(recvBuff[i]) << " ";
+		flush(cout);
+		return true;
+	}
+	else
+	{
+		ERROR("Failed to get serial data");
+		return false;
+	}
+}
+
+//
 bool erg::isEndOfWorkout(unsigned char b)
 {
-	return (b & END_OF_WORKOUT) == END_OF_WORKOUT ? true : false;
+	return (b & IS_END_OF_WORKOUT) == IS_END_OF_WORKOUT ? true : false;
 }
 
+//
 bool erg::isEndOfStroke(unsigned char b)
 {
-	return (b & END_OF_STROKE) == END_OF_STROKE ? true : false;
+	return (b & IS_END_OF_STROKE) == IS_END_OF_STROKE ? true : false;
 }
 
+//
 bool erg::isWorkDistance(unsigned char b)
 {
-	return (b & WORK_DISTANCE) == WORK_DISTANCE ? true : false;
+	return (b & IS_WORK_DISTANCE) == IS_WORK_DISTANCE ? true : false;
 }
 
+//
 bool erg::isWorkTime(unsigned char b)
 {
-	return (b & WORK_TIME) == WORK_TIME ? true : false;
+	return (b & IS_WORK_TIME) == IS_WORK_TIME ? true : false;
 }
 
+//
 bool erg::isLowBattery(unsigned char b)
 {
-	return (b & LOW_BATTERY) == LOW_BATTERY ? true : false;
+	return (b & IS_LOW_BATTERY) == IS_LOW_BATTERY ? true : false;
 }
 
 // Get the status as a string
@@ -210,24 +360,25 @@ string erg::getStatusStr(int ergnum)
 	float distance; // Not used, we just want status
 
 	// Distance request returns status
-	getDistanceData(ergnum, status, distance);
+	//getDistanceData(ergnum, status, distance);
 
-	DEBUG("status=%04x, distance=%f\n", status, distance);
+	DEBUG("status=%04x, distance=%f", status, distance);
 
-	if ((status & END_OF_WORKOUT) == END_OF_WORKOUT)
+	if ((status & IS_END_OF_WORKOUT) == IS_END_OF_WORKOUT)
 		str += "EndOfWorkout ";
-	if ((status & END_OF_STROKE) == END_OF_STROKE)
+	if ((status & IS_END_OF_STROKE) == IS_END_OF_STROKE)
 		str += "EndOfStroke ";
-	if ((status & WORK_DISTANCE) == WORK_DISTANCE)
+	if ((status & IS_WORK_DISTANCE) == IS_WORK_DISTANCE)
 		str += "WorkDistance ";
-	if ((status & WORK_TIME) == WORK_TIME)
+	if ((status & IS_WORK_TIME) == IS_WORK_TIME)
 		str += "WorkTime ";
-	if ((status & LOW_BATTERY) == LOW_BATTERY)
+	if ((status & IS_LOW_BATTERY) == IS_LOW_BATTERY)
 		str += "LowBattery ";
 
 	return str;
 }
 
+//
 string erg::byteToBinStr(unsigned char byte)
 {
 	string str;
