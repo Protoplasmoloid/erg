@@ -35,15 +35,15 @@ int main(int argc, char **argv)
 	// FIXME PM2+ wakes up after first poke, then we get timeouts
 	float distance;
 	erg.getDistanceData(ERG_NUM, status, distance);
-	DEBUG("status=%x, distance=%f", status, distance);
+	DEBUG("getDistanceData: status=0x%02x, distance=%f", status, distance);
 
 	float time;
 	erg.getElapsedTime(ERG_NUM, status, time);
-	DEBUG("status=%x, time=%f", status, time);
+	DEBUG("getElapsedTime:  status=0x%02x, time=%f", status, time);
 
 	float pace;
 	erg.getPaceData(ERG_NUM, status, pace);
-	DEBUG("status=%x, pace=%f", status, pace);
+	DEBUG("getPaceData:     status=0x%02x, pace=%f", status, pace);
 
 
 	DEBUG("End of test stubs:");

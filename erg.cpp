@@ -43,7 +43,7 @@ bool erg::getSerial(unsigned char *txbuff, unsigned char *rxbuff, int ntx,
 	ssize_t nExp = nrx;
 	unsigned char *pBuff = rxbuff;
 
-	DEBUG("Sent %lu bytes, want %lu bytes", nTxd, nExp);
+	//DEBUG("Sent %lu bytes, want %lu bytes", nTxd, nExp);
 
 	//usleep(10000); // Sanity check for read speed
 
@@ -73,7 +73,7 @@ bool erg::getSerial(unsigned char *txbuff, unsigned char *rxbuff, int ntx,
 			nRxd = read(fd, pBuff, nExp); // FD_ISSET(fd, &rfds) will be true
 			nExp -= nRxd;
 			pBuff += nRxd;
-			INFO("Got %lu bytes", nRxd);
+			//DEBUG("Got %lu bytes", nRxd);
 		}
 		else
 		{
