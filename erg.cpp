@@ -82,11 +82,15 @@ bool erg::getSerial(unsigned char *txbuff, unsigned char *rxbuff, int ntx,
 		}
 	}
 
-	printf("Received: ");
+	string debug = "Received: ";
+	char str[10];
+	char *pstr = str;
 	for (int i = 0; i < nrx; i++)
-		printf("0x%02x ", rxbuff[i]);
-	printf("\n");
-	fflush(stdout);
+	{
+		sprintf(pstr, "0x%02x ", rxbuff[i]);
+		debug += pstr;
+	}
+	DEBUG("%s", debug.c_str());
 
 	return retval == -1 ? false : true;
 }
