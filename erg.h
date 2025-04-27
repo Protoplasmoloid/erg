@@ -61,7 +61,7 @@ public:
 	bool isLowBattery(unsigned char);
 	bool getDistanceData(unsigned char, unsigned char&, float&);
 	bool getPaceData(unsigned char, unsigned char&, float&);
-	bool getHeartPeriod(unsigned char, float&);
+	bool getHeartPeriod(unsigned char);
 	bool getElapsedTime(unsigned char, unsigned char&, float&);
 	bool getUnknownB4(unsigned char);
 	bool getUnknownB5(unsigned char);

@@ -31,8 +31,14 @@ int main(int argc, char **argv)
 	unsigned char status;
 
 	// FIXME The PM2+ goes into sleep mode and resets to zero after a few seconds
-	// FIXME After sleep we get timeouts for first reads, after that its all ok (err most of the time!)
+	// FIXME After sleep we get timeouts for first two reads, after that its all ok (err most of the time!)
 	// FIXME PM2+ wakes up after first poke, then we get timeouts
+
+	float pace;
+	unsigned char rate;
+	erg.getPaceData(ERG_NUM, rate, pace);
+	DEBUG("getPaceData:     rate=0x%02x, pace=%f", rate, pace);
+
 	float distance;
 	erg.getDistanceData(ERG_NUM, status, distance);
 	DEBUG("getDistanceData: status=0x%02x, distance=%f", status, distance);
@@ -41,10 +47,14 @@ int main(int argc, char **argv)
 	erg.getElapsedTime(ERG_NUM, status, time);
 	DEBUG("getElapsedTime:  status=0x%02x, time=%f", status, time);
 
-	float pace;
-	erg.getPaceData(ERG_NUM, status, pace);
-	DEBUG("getPaceData:     status=0x%02x, pace=%f", status, pace);
+//	erg.getHeartPeriod(ERG_NUM); // Always get a timeout...
 
+//	erg.getUnknownB4(ERG_NUM); // Always get a timeout.
+//	erg.getUnknownB5(ERG_NUM); // Always get a timeout.
+	erg.getUnknownB6(ERG_NUM);
+//	erg.getUnknownB7(ERG_NUM); // Always get a timeout.
+	erg.getUnknownB8(ERG_NUM);
+	erg.getUnknownB9(ERG_NUM);
 
 	DEBUG("End of test stubs:");
 

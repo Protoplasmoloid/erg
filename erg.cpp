@@ -23,7 +23,7 @@ bool erg::init(string dev)
 {
 	//DEBUG("dev=%s", dev.c_str());
 
-	if (-1 == (fd = open(dev.c_str(), O_RDWR)))
+	if (-1 == (fd = open(dev.c_str(), O_RDWR | O_NONBLOCK)))
 	{
 		ERROR("Failed to open %s: %s", dev.c_str(), strerror(errno));
 		return false;
@@ -45,40 +45,81 @@ bool erg::getSerial(unsigned char *txbuff, unsigned char *rxbuff, int ntx,
 
 	//DEBUG("Sent %lu bytes, want %lu bytes", nTxd, nExp);
 
-	//usleep(10000); // Sanity check for read speed
+	usleep(10000); // Sanity check for read speed
+
+	if(ntx != nTxd)
+	{
+		ERROR("Failed to write requested payload, ntx=%d", ntx);
+		return false;
+	}
+
+	{
+		string debug = "Writing: ";
+		char str[10];
+		char *pstr = str;
+		for (int i = 0; i < ntx; i++)
+		{
+			sprintf(pstr, "0x%02x ", txbuff[i]);
+			debug += pstr;
+		}
+		DEBUG("%s", debug.c_str());
+	}
 
 	int retval = -1;
+	int nTimeouts = 5; // Number of timeouts for wake up
 	fd_set rfds;
 	struct timeval tv;
 
-	// Get the expected number of bytes
-	while (0 != nExp)
+	// The PM2 seems to need time to wake up
+	while (nTimeouts)
 	{
-		FD_ZERO(&rfds);
-		FD_SET(fd, &rfds);
-
-		// Wait for up to one second
-		tv.tv_sec = 1;
-		tv.tv_usec = 0;
-
-		retval = select(fd + 1, &rfds, NULL, NULL, &tv);
-
-		if (retval == -1)
+		// Get the expected number of bytes
+		while (0 != nExp)
 		{
-			ERROR("Select failed: %s", strerror(errno));
-			break;
-		}
-		else if (retval)
-		{
-			nRxd = read(fd, pBuff, nExp); // FD_ISSET(fd, &rfds) will be true
-			nExp -= nRxd;
-			pBuff += nRxd;
-			//DEBUG("Got %lu bytes", nRxd);
-		}
-		else
-		{
-			ERROR("Timeout waiting for data");
-			break;
+			FD_ZERO(&rfds);
+			FD_SET(fd, &rfds);
+
+			// Wait for up to one second
+			tv.tv_sec = 1;
+			tv.tv_usec = 0;
+
+			retval = select(fd + 1, &rfds, NULL, NULL, &tv);
+
+			if (-1 == retval)
+			{
+				ERROR("Select failed: %s", strerror(errno));
+				nTimeouts = 0;
+				break;
+			}
+			else if (retval)
+			{
+				nRxd = read(fd, pBuff, nExp); // FD_ISSET(fd, &rfds) will be true
+				nExp -= nRxd;
+				pBuff += nRxd;
+				//DEBUG("Got %lu bytes", nRxd);
+				nTimeouts = 0;
+			}
+			else // retval == 0
+			{
+				ERROR("Timeout waiting for data, nTimeouts=%d", nTimeouts);
+				sleep(1); // try sleepng for longer.
+				// NO, it still times out for the first two calls! it gets the third in this context!
+				nTimeouts--;
+				ERROR("Try writing again, nTimeouts=%d", nTimeouts);
+				{
+					string debug = "Writing: ";
+					char str[10];
+					char *pstr = str;
+					for (int i = 0; i < ntx; i++)
+					{
+						sprintf(pstr, "0x%02x ", txbuff[i]);
+						debug += pstr;
+					}
+					DEBUG("%s", debug.c_str());
+				}
+				write(fd, txbuff, ntx);
+				break;
+			}
 		}
 	}
 
@@ -107,6 +148,8 @@ bool erg::getDistanceData(unsigned char ergnum, unsigned char &status,
 		{ ergnum, GET_DISTANCE_DATA };
 	unsigned char recvBuff[NRX_DISTANCE_DATA];
 
+	DEBUG("Do getDistanceData");
+
 	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_DISTANCE_DATA))
 	{
 		status = recvBuff[0];
@@ -130,6 +173,8 @@ bool erg::getPaceData(unsigned char ergnum, unsigned char &status, float &pace)
 		{ ergnum, GET_PACE_DATA };
 	unsigned char recvBuff[NRX_PACE_DATA];
 
+	DEBUG("Do getPaceData");
+
 	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_PACE_DATA))
 	{
 		status = recvBuff[0];
@@ -146,15 +191,18 @@ bool erg::getPaceData(unsigned char ergnum, unsigned char &status, float &pace)
 // 0xb2, heart period (ushort). Note: heart rate = 576,000/heart period
 // Expects to read 2 bytes
 // 00 00
-bool erg::getHeartPeriod(unsigned char ergnum, float &period)
+// FIXME: What is returned?
+bool erg::getHeartPeriod(unsigned char ergnum)
 {
 	unsigned char sendBuff[NTX_COMMAND] =
 		{ ergnum, GET_HEART_PERIOD };
 	unsigned char recvBuff[NRX_HEART_PERIOD];
 
+	DEBUG("Do getHeartPeriod");
+
 	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_HEART_PERIOD))
 	{
-		period = -1; //(float((short *)recvBuff); // FIXME
+		//period = -1; //(float((short *)recvBuff); // FIXME
 		return true;
 	}
 	else
@@ -174,6 +222,8 @@ bool erg::getElapsedTime(unsigned char ergnum, unsigned char &status,
 	unsigned char sendBuff[NTX_COMMAND] =
 		{ ergnum, GET_ELAPSED_TIME };
 	unsigned char recvBuff[NRX_ELAPSED_TIME];
+
+	DEBUG("Do getElapsedTime");
 
 	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_ELAPSED_TIME))
 	{
@@ -197,11 +247,10 @@ bool erg::getUnknownB4(unsigned char ergnum)
 		{ ergnum, GET_UNKNOWN_B4 };
 	unsigned char recvBuff[NRX_UNKNOWN_B4];
 
+	DEBUG("Do getUnknownB4");
+
 	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B4))
 	{
-		for (int i = 0; i < NRX_UNKNOWN_B4; ++i)
-			cout << byteToBinStr(recvBuff[i]) << " ";
-		flush(cout);
 		return true;
 	}
 	else
@@ -220,11 +269,10 @@ bool erg::getUnknownB5(unsigned char ergnum)
 		{ ergnum, GET_UNKNOWN_B5 };
 	unsigned char recvBuff[NRX_UNKNOWN_B5];
 
+	DEBUG("Do getUnknownB5");
+
 	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B5))
 	{
-		for (int i = 0; i < NRX_UNKNOWN_B5; ++i)
-			cout << byteToBinStr(recvBuff[i]) << " ";
-		flush(cout);
 		return true;
 	}
 	else
@@ -243,11 +291,10 @@ bool erg::getUnknownB6(unsigned char ergnum)
 		{ ergnum, GET_UNKNOWN_B6 };
 	unsigned char recvBuff[NRX_UNKNOWN_B6];
 
+	DEBUG("Do getUnknownB6");
+
 	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B6))
 	{
-		for (int i = 0; i < NRX_UNKNOWN_B6; ++i)
-			cout << byteToBinStr(recvBuff[i]) << " ";
-		flush(cout);
 		return true;
 	}
 	else
@@ -266,11 +313,10 @@ bool erg::getUnknownB7(unsigned char ergnum)
 		{ ergnum, GET_UNKNOWN_B7 };
 	unsigned char recvBuff[NRX_UNKNOWN_B7];
 
+	DEBUG("Do getUnknownB7");
+
 	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B7))
 	{
-		for (int i = 0; i < NRX_UNKNOWN_B7; ++i)
-			cout << byteToBinStr(recvBuff[i]) << " ";
-		flush(cout);
 		return true;
 	}
 	else
@@ -289,11 +335,10 @@ bool erg::getUnknownB8(unsigned char ergnum)
 		{ ergnum, GET_UNKNOWN_B8 };
 	unsigned char recvBuff[NRX_UNKNOWN_B8];
 
+	DEBUG("Do getUnknownB8");
+
 	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B8))
 	{
-		for (int i = 0; i < NRX_UNKNOWN_B8; ++i)
-			cout << byteToBinStr(recvBuff[i]) << " ";
-		flush(cout);
 		return true;
 	}
 	else
@@ -312,11 +357,10 @@ bool erg::getUnknownB9(unsigned char ergnum)
 		{ ergnum, GET_UNKNOWN_B9 };
 	unsigned char recvBuff[NRX_UNKNOWN_B9];
 
+	DEBUG("Do getUnknownB9");
+
 	if (getSerial(sendBuff, recvBuff, NTX_COMMAND, NRX_UNKNOWN_B9))
 	{
-		for (int i = 0; i < NRX_UNKNOWN_B9; ++i)
-			cout << byteToBinStr(recvBuff[i]) << " ";
-		flush(cout);
 		return true;
 	}
 	else
