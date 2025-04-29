@@ -19,11 +19,17 @@ erg::~erg()
 		close(fd);
 }
 
+/*
+ * Port was left as configured by the OS (9600 8-n-1), but
+ * -echo was added using udev (stty -F /dev/ttyUSB0 -echo)
+ * to allow comms using the shell (cat, printf, etc...).
+ */
 bool erg::init(string dev)
 {
 	//DEBUG("dev=%s", dev.c_str());
 
-	if (-1 == (fd = open(dev.c_str(), O_RDWR | O_NONBLOCK)))
+//	if (-1 == (fd = open(dev.c_str(), O_RDWR | O_NONBLOCK)))
+	if (-1 == (fd = open(dev.c_str(), O_RDWR)))
 	{
 		ERROR("Failed to open %s: %s", dev.c_str(), strerror(errno));
 		return false;
@@ -37,17 +43,16 @@ bool erg::init(string dev)
 bool erg::getSerial(unsigned char *txbuff, unsigned char *rxbuff, int ntx,
 		int nrx)
 {
-	// Assume sending the data will always work!
+	// Write the request
 	ssize_t nTxd = write(fd, txbuff, ntx);
+
 	ssize_t nRxd = 0;
 	ssize_t nExp = nrx;
 	unsigned char *pBuff = rxbuff;
 
 	//DEBUG("Sent %lu bytes, want %lu bytes", nTxd, nExp);
 
-	usleep(10000); // Sanity check for read speed
-
-	if(ntx != nTxd)
+	if (ntx != nTxd)
 	{
 		ERROR("Failed to write requested payload, ntx=%d", ntx);
 		return false;
@@ -138,9 +143,9 @@ bool erg::getSerial(unsigned char *txbuff, unsigned char *rxbuff, int ntx,
 
 // 0xb0, status (uchar), distance in meters (float).
 // Expects to read 5 bytes
-// 0xc0 0x00 0x00 0x00 0x00 status=c0, distance=0.000000
-// 0xc2 0x67 0x8f 0x0d 0x41 status=c2, distance=8.847510
-// 0x2d 0x2a 0x27 0x9d 0x41 status=2d, distance=19.644123
+// e.g. 0xc0 0x00 0x00 0x00 0x00 status=c0, distance=0.000000
+// e.g. 0xc2 0x67 0x8f 0x0d 0x41 status=c2, distance=8.847510
+// e.g. 0x2d 0x2a 0x27 0x9d 0x41 status=2d, distance=19.644123
 bool erg::getDistanceData(unsigned char ergnum, unsigned char &status,
 		float &distance)
 {
@@ -165,8 +170,7 @@ bool erg::getDistanceData(unsigned char ergnum, unsigned char &status,
 
 // 0xb1, stroke rate (uchar) in strokes/min and secs/meter (float)
 // Expects to read 5 bytes
-// 6c 5c 58 fe 00 3f
-// 0x02 0xaa 0xf2 0x09 0x3f status=2, pace=0.538859
+// e.g. 0x02 0xaa 0xf2 0x09 0x3f status=2, pace=0.538859
 bool erg::getPaceData(unsigned char ergnum, unsigned char &status, float &pace)
 {
 	unsigned char sendBuff[NTX_COMMAND] =
@@ -191,7 +195,6 @@ bool erg::getPaceData(unsigned char ergnum, unsigned char &status, float &pace)
 // 0xb2, heart period (ushort). Note: heart rate = 576,000/heart period
 // Expects to read 2 bytes
 // 00 00
-// FIXME: What is returned?
 bool erg::getHeartPeriod(unsigned char ergnum)
 {
 	unsigned char sendBuff[NTX_COMMAND] =
@@ -214,8 +217,7 @@ bool erg::getHeartPeriod(unsigned char ergnum)
 
 // 0xb3, status (uchar), elapsed time (float) in secs.
 // Expects to read 5 bytes
-// 83 d0 00 e8 00 41
-// 0xc0 0x8a 0x94 0x40 0x41 status=c0, time=12.036264
+// e.g. 0xc0 0x8a 0x94 0x40 0x41 status=c0, time=12.036264
 bool erg::getElapsedTime(unsigned char ergnum, unsigned char &status,
 		float &time)
 {
@@ -408,9 +410,9 @@ string erg::getStatusStr(int ergnum)
 	float distance; // Not used, we just want status
 
 	// Distance request returns status
-	//getDistanceData(ergnum, status, distance);
+	getDistanceData(ergnum, status, distance);
 
-	DEBUG("status=%04x, distance=%f", status, distance);
+	//DEBUG("status=%04x, distance=%f", status, distance);
 
 	if ((status & IS_END_OF_WORKOUT) == IS_END_OF_WORKOUT)
 		str += "EndOfWorkout ";
@@ -426,7 +428,7 @@ string erg::getStatusStr(int ergnum)
 	return str;
 }
 
-//
+// Byte to bits
 string erg::byteToBinStr(unsigned char byte)
 {
 	string str;
